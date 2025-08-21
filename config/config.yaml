@@ -1,0 +1,16 @@
+pet:
+  size: 100
+  total_height: 150
+  animation_speed: 500
+  idle_time_threshold: 300
+  thinking_time_threshold: 60
+  blink_interval_min: 80
+  blink_interval_max: 150
+  blink_duration: 8
+
+initial_position:
+  x: "right-50"
+  y: "bottom-100"
+
+eye_tracking:
+  max_radius: 3

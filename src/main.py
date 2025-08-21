@@ -12,25 +12,119 @@ import pystray
 from pystray import MenuItem as item
 import json
 
+import yaml
+from typing import Dict, Any, List
+
+class ConfigLoader:
+    def __init__(self, config_dir: str = "config"):
+        self.config_dir = config_dir
+        self.configs = {
+            'main': None,
+            'messages': None
+        }
+        
+    def load_all_configs(self) -> Dict[str, Any]:
+        """加载所有配置文件"""
+        try:
+            self.configs['main'] = self._load_config('config.yaml')
+            self.configs['messages'] = self._load_config('messages.yaml')
+            return self.configs
+        except Exception as e:
+            print(f"加载配置文件失败: {e}")
+            # 提供默认配置
+            return self._get_default_configs()
+
+    def _load_config(self, filename: str) -> Dict[str, Any]:
+        """加载单个YAML文件"""
+        filepath = os.path.join(self.config_dir, filename)
+        with open(filepath, 'r', encoding='utf-8') as file:
+            return yaml.safe_load(file)
+
+    def _get_default_configs(self) -> Dict[str, Any]:
+        """获取默认配置（当文件加载失败时使用）"""
+        return {
+            'main': {
+                'pet': {
+                    'size': 100,
+                    'total_height': 150,
+                    'animation_speed': 500,
+                    'idle_time_threshold': 300,
+                    'thinking_time_threshold': 60,
+                    'blink_interval_min': 80,
+                    'blink_interval_max': 150,
+                    'blink_duration': 8
+                },
+                'initial_position': {
+                    'x': 'right-50',
+                    'y': 'bottom-100'
+                },
+                'eye_tracking': {
+                    'max_radius': 3
+                }
+            },
+            'messages': {
+                'greeting': ["你好呀！我是你的桌面宠物~"],
+                'happy': ["我今天心情特别好！"],
+                'sleepy': ["好困啊...想睡觉了"],
+                'excited': ["哇！好兴奋啊！"],
+                'thinking': ["让我想想..."],
+                'curious': ["咦？这是什么？"],
+                'work': ["工作要加油哦！"],
+                'random': ["我会一直陪着你的~"]
+            }
+        }
+
+    def get_main_config(self) -> Dict[str, Any]:
+        """获取主配置"""
+        return self.configs['main'] or self._get_default_configs()['main']
+
+    def get_messages_config(self) -> Dict[str, List[str]]:
+        """获取消息配置"""
+        return self.configs['messages'] or self._get_default_configs()['messages']
+
+
+
 class DesktopPet:
     def __init__(self):
+
+        self.config_loader = ConfigLoader()
+        self.configs = self.config_loader.load_all_configs()
+        self.main_config = self.config_loader.get_main_config()
+        self.messages_config = self.config_loader.get_messages_config()
+
         self.root = tk.Tk()
         self.root.title("桌面宠物")
         self.root.overrideredirect(True)  # 移除窗口边框
         self.root.attributes('-topmost', True)  # 始终置顶
         self.root.attributes('-transparentcolor', 'white')  # 设置透明色
-        
-        # 窗口大小（需要增加高度来容纳对话框）
-        self.pet_size = 100
-        self.total_height = 150  # 增加高度来容纳对话框
+
+        # 从配置中获取窗口大小
+        pet_config = self.main_config.get('pet', {})
+        self.pet_size = pet_config.get('size', 100)
+        self.total_height = pet_config.get('total_height', 150)  # 增加高度来容纳对话框
         self.root.geometry(f"{self.pet_size}x{self.total_height}")
         
         # 获取屏幕尺寸并设置初始位置（右下角）
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        x = screen_width - self.pet_size - 50
-        y = screen_height - self.total_height - 100
+        # 解析初始位置配置
+        pos_config = self.main_config.get('initial_position', {})
+        x_pos = pos_config.get('x', 'right-50')
+        y_pos = pos_config.get('y', 'bottom-100')
+        # 计算初始位置
+        if x_pos.startswith('right-'):
+            offset = int(x_pos.split('-')[1])
+            x = screen_width - self.pet_size - offset
+        else:
+            x = int(x_pos)
+            
+        if y_pos.startswith('bottom-'):
+            offset = int(y_pos.split('-')[1])
+            y = screen_height - self.total_height - offset
+        else:
+            y = int(y_pos)
         self.root.geometry(f"+{x}+{y}")
+
         
         # 宠物状态
         self.emotions = ['normal', 'happy', 'sleepy', 'excited', 'thinking', 'curious']
@@ -39,10 +133,11 @@ class DesktopPet:
         self.drag_start_x = 0
         self.drag_start_y = 0
         
-        # 时间相关状态
+        # 从配置中获取时间相关参数
         self.last_interaction_time = time.time()
-        self.idle_time_threshold = 300  # 300秒后进入困倦状态
-        self.thinking_time_threshold = 60  # 60秒后进入思考状态
+        self.idle_time_threshold = pet_config.get('idle_time_threshold', 300)  # 300秒后进入困倦状态
+        self.thinking_time_threshold = pet_config.get('thinking_time_threshold', 60)  # 60秒后进入思考状态
+        
         
         # 鼠标状态追踪
         self.mouse_over = False  # 追踪鼠标是否在宠物上方
@@ -53,77 +148,11 @@ class DesktopPet:
         self.is_speaking = False
         self.speech_bubble = None
         self.speech_text = None
-        try:
-            self.hello_messages = self.load_hello_messages()
-        except Exception as e:
-            print(f"Error loading hello messages: {e}")
-        self.hello_messages = {
-            'greeting': [
-                "你好呀！我是你的桌面宠物~",
-                "主人好！今天过得怎么样？",
-                "嗨！很高兴见到你~",
-                "你好！我在这里陪着你哦！",
-                "主人，你来找我玩了吗？"
-            ],
-            'happy': [
-                "我今天心情特别好！",
-                "和你在一起真开心~",
-                "哈哈哈，好开心啊！",
-                "今天是美好的一天呢！",
-                "我超级开心的！"
-            ],
-            'sleepy': [
-                "好困啊...想睡觉了",
-                "主人也要注意休息哦",
-                "工作累了就休息一下吧",
-                "呼~好想睡个午觉",
-                "记得劳逸结合哦~"
-            ],
-            'excited': [
-                "哇！好兴奋啊！",
-                "发生什么好事了吗？",
-                "我充满了能量！",
-                "太棒了！",
-                "让我们一起加油吧！"
-            ],
-            'thinking': [
-                "让我想想...",
-                "这个问题很有趣呢",
-                "嗯...该怎么办呢？",
-                "我在思考中...",
-                "有什么好主意吗？"
-            ],
-            'curious': [
-                "咦？这是什么？",
-                "好奇怪啊，发生什么了？",
-                "哇，这很有趣呢！",
-                "我想探索一下~",
-                "有什么新发现吗？"
-            ],
-            'work': [
-                "工作要加油哦！",
-                "别忘了适当休息~",
-                "你今天很努力呢！",
-                "加油！我相信你！",
-                "工作虽累，但要保持好心情！"
-            ],
-            'random': [
-                "你知道吗？我会变很多表情哦！",
-                "试试右键菜单，有很多功能呢~",
-                "我可以提醒你摸鱼哦！",
-                "拖动我可以换位置呢！",
-                "双击我会有惊喜哦！",
-                "我会一直陪着你的~",
-                "记得要好好照顾自己！",
-                "今天的天气不错呢！",
-                "你有什么烦恼吗？可以告诉我哦~",
-                "我虽然是虚拟的，但关心是真的！"
-            ]
-        }
+        self.talk_messages = self.messages_config
         
         # 动画相关
         self.animation_frame = 0
-        self.animation_speed = 500  # 毫秒
+        self.animation_speed = pet_config.get('animation_speed', 500)  # 毫秒
         
         # 摸鱼提醒器进程
         self.fish_reminder_process = None
@@ -146,10 +175,6 @@ class DesktopPet:
         # 启动后说一句问候语
         self.root.after(1000, lambda: self.say_random_message('greeting'))
 
-    def load_hello_messages(self):
-        data_path = os.path.join('..', 'data', 'pet_hello.json')
-        with open(data_path, 'r', encoding='utf-8') as file:
-            self.hello_messages = json.load(file)
 
     def calculate_eye_position(self, eye_center_x, eye_center_y, mouse_x, mouse_y):
         """计算眼球位置"""
@@ -390,10 +415,6 @@ class DesktopPet:
         img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
         draw = ImageDraw.Draw(img)
         
-        # 宠物在画布中的位置（相对于80x80图像）
-        pet_center_x = 40
-        pet_center_y = 50
-        
         if emotion == 'normal':
             # 普通表情 - 绿色圆形身体
             draw.ellipse([10, 20, 70, 70], fill='#4CAF50', outline='#2E7D32', width=2)
@@ -402,12 +423,8 @@ class DesktopPet:
             draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
             
             # 计算眼球位置
-            # if self.mouse_over:
             left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
             right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-            # else:
-            #     left_eye_x, left_eye_y = 30, 35
-            #     right_eye_x, right_eye_y = 50, 35
             
             # 画眼球
             draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
@@ -423,12 +440,8 @@ class DesktopPet:
             draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
             
             # 计算眼球位置
-            # if self.mouse_over:
             left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
             right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-            # else:
-            #     left_eye_x, left_eye_y = 30, 35
-            #     right_eye_x, right_eye_y = 50, 35
             
             # 画眼球
             draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
@@ -483,8 +496,7 @@ class DesktopPet:
             draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
             
             # 思考时眼睛倾向于向上看，但仍会跟随鼠标
-            # if self.mouse_over:
-                # 添加向上偏移
+            # 添加向上偏移
             left_eye_x, left_eye_y = self.calculate_eye_position(30, 32, mouse_x, mouse_y-5)
             right_eye_x, right_eye_y = self.calculate_eye_position(50, 32, mouse_x, mouse_y-5)
             # else:
@@ -508,7 +520,6 @@ class DesktopPet:
             draw.ellipse([44, 30, 54, 40], fill='#FFFEFA', outline='black')  # 右眼小一些
             
             # 计算眼球位置（不同大小的眼睛）
-            # if self.mouse_over:
             left_eye_x, left_eye_y = self.calculate_eye_position(29, 35, mouse_x, mouse_y)
             right_eye_x, right_eye_y = self.calculate_eye_position(49, 35, mouse_x, mouse_y)
             # else:
@@ -787,8 +798,8 @@ class DesktopPet:
 
     def say_random_message(self, category='random'):
         """随机说话"""
-        if category in self.hello_messages:
-            message = random.choice(self.hello_messages[category])
+        if category in self.talk_messages:
+            message = random.choice(self.talk_messages[category])
             self.create_speech_bubble(message)
 
     def on_click(self, event):
