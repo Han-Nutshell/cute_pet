@@ -84,19 +84,290 @@ class ConfigLoader:
 
 
 
-class DesktopPet:
+class BasePet:
     def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("桌面宠物")
+        self.root.overrideredirect(True)  # 去除窗口边框和标题栏，使窗口无边框
+        self.root.attributes('-topmost', True)  # 设置窗口始终置顶
+        self.root.attributes('-transparentcolor', 'white')  # 设置窗口白色为透明，实现宠物悬浮效果
+        self.pet_size = 100
+        self.total_height = 150
+        self.root.geometry(f"{self.pet_size}x{self.total_height}")
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = screen_width - self.pet_size - 50
+        y = screen_height - self.total_height - 100
+        self.root.geometry(f"+{x}+{y}")
 
+        self.emotions = ['normal', 'happy', 'sleepy', 'excited', 'thinking', 'curious']
+        self.current_emotion = 'normal'
+        self.is_dragging = False
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.last_interaction_time = time.time()
+        self.idle_time_threshold = 300
+        self.thinking_time_threshold = 60
+        self.mouse_over = False
+        self.mouse_x = 0
+        self.mouse_y = 0
+        self.is_speaking = False
+        self.speech_bubble = None
+        self.speech_text = None
+        self.animation_frame = 0
+        self.animation_speed = 500
+        self.tray_icon = None
+        self.tray_thread = None
+        self.is_hidden = False
+        self.fish_reminder_process = None
+
+
+        print("BasePet initialized.")
+
+    def create_widgets(self):
+        """
+        初始化并创建宠物应用的主界面控件。
+        - 创建用于显示宠物图像的主Canvas画布。
+        - 添加右键菜单，包含以下选项：
+            - "🐟 打开摸鱼提醒器"：打开摸鱼提醒工具。
+            - "切换心情"：子菜单，可切换宠物表情。
+            - "💬 随机说话"：让宠物随机说一句话。
+            - "📌 置顶/取消置顶"：切换窗口置顶状态。
+            - "🎯 移到右下角"：将宠物窗口移动到屏幕右下角。
+            - "👁️ 隐藏到托盘"：将窗口隐藏到系统托盘。
+            - "❌ 退出"：退出应用程序。
+        - 设置菜单命令的事件绑定。
+        """
+
+        self.canvas = tk.Canvas(
+            self.root,
+            width=self.pet_size,
+            height=self.total_height,
+            bg='white',
+            highlightthickness=0
+        )
+        self.canvas.pack()
+        self.pet_sprite = self.canvas.create_image(
+            self.pet_size//2,
+            self.total_height - self.pet_size//2,
+            image=None
+        )
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="🐟 打开摸鱼提醒器", command=self.open_fish_reminder)
+        self.context_menu.add_separator()
+        emotion_menu = tk.Menu(self.context_menu, tearoff=0)
+        for emo in self.emotions:
+            emotion_menu.add_command(label=emo, command=lambda e=emo: self.change_emotion(e))
+        self.context_menu.add_cascade(label="切换心情", menu=emotion_menu)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="💬 随机说话", command=lambda: self.say_random_message('random'))
+        self.context_menu.add_command(label="📌 置顶/取消置顶", command=self.toggle_topmost)
+        self.context_menu.add_command(label="🎯 移到右下角", command=self.move_to_corner)
+        self.context_menu.add_command(label="👁️ 隐藏到托盘", command=self.hide_to_tray)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="❌ 退出", command=self.quit_app)
+
+    def bind_events(self):
+        self.canvas.bind("<Button-1>", self.on_click)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<Button-3>", self.show_context_menu)
+        self.canvas.bind("<Double-Button-1>", self.on_double_click)
+        self.canvas.bind("<Enter>", self.on_mouse_enter)
+        self.canvas.bind("<Leave>", self.on_mouse_leave)
+        self.canvas.bind("<Motion>", self.on_mouse_motion)
+
+    def on_click(self, event):
+        pass
+
+    def on_drag(self, event):
+        pass
+
+    def on_release(self, event):
+        pass
+
+    def on_double_click(self, event):
+        pass
+
+    def on_mouse_enter(self, event):
+        pass
+
+    def on_mouse_leave(self, event):
+        pass
+
+    def show_context_menu(self, event):
+        pass
+
+    def on_mouse_motion(self, event):
+        """鼠标移动事件"""
+        # 转换为相对于宠物图像的坐标
+        # 宠物图像是80x80，显示在100x150窗口的下方
+        pet_offset_x = (self.pet_size - 80) // 2  # 居中偏移
+        pet_offset_y = self.total_height - self.pet_size  # 下方偏移
+        
+        self.mouse_x = event.x - pet_offset_x
+        self.mouse_y = event.y - pet_offset_y
+
+    def create_tray_icon(self):
+        """创建系统托盘图标"""
+        # 创建托盘图标图像（简化的宠物图标）
+        tray_image_path = r"D:\python工程\cute pet\image\tray_ico.png"
+        tray_image = Image.open(tray_image_path).resize((64, 64), Image.LANCZOS)
+
+        # 创建托盘菜单
+        menu = pystray.Menu(
+            item('显示/隐藏宠物', self.toggle_pet_visibility, default=True),
+            pystray.Menu.SEPARATOR,
+            item('🐟 打开摸鱼提醒器', self.open_fish_reminder),
+            pystray.Menu.SEPARATOR,
+            # 表情切换子菜单
+            item('切换表情', pystray.Menu(
+                item('😊 开心', lambda: self.change_emotion('happy')),
+                item('😴 困倦', lambda: self.change_emotion('sleepy')),
+                item('🤔 思考', lambda: self.change_emotion('thinking')),
+                item('🎉 兴奋', lambda: self.change_emotion('excited')),
+                item('🤨 好奇', lambda: self.change_emotion('curious')),
+                item('😐 普通', lambda: self.change_emotion('normal'))
+            )),
+            pystray.Menu.SEPARATOR,
+            item('💬 随机说话', lambda: self.say_random_message('random')),
+            item('📌 切换置顶', self.toggle_topmost),
+            item('🎯 移到右下角', self.move_to_corner),
+            pystray.Menu.SEPARATOR,
+            item('❌ 退出程序', self.quit_app)
+        )
+        
+        # 创建托盘图标对象
+        self.tray_icon = pystray.Icon(
+            "桌面宠物",
+            tray_image,
+            "桌面宠物 - 可爱的桌面伙伴",
+            menu
+        )
+
+    def start_tray_icon(self):
+        """在后台线程中启动托盘图标"""
+        def run_tray():
+            try:
+                self.tray_icon.run()
+            except Exception as e:
+                print(f"托盘图标启动失败: {e}")
+
+        self.tray_thread = threading.Thread(target=run_tray, daemon=True)  # 将线程设置为守护线程
+        self.tray_thread.start()
+
+    def hide_to_tray(self):
+        """隐藏到托盘"""
+        self.is_hidden = True
+        self.mouse_over = False  # 重置鼠标状态
+        self.clear_speech_bubble()  # 清除对话框
+        self.root.withdraw()  # 隐藏窗口
+
+    def start_behavior_monitoring(self):
+        pass
+
+    def create_speech_bubble(self, text):
+        """创建对话框"""
+        if self.is_hidden:
+            return
+            
+        # 清除旧的对话框
+        self.clear_speech_bubble()
+        
+        # 计算文本尺寸
+        text_width = len(text) * 10  # 估算文本宽度
+        text_height = 20
+        
+        # 对话框尺寸
+        bubble_width = min(max(text_width + 20, 80), self.pet_size - 10)+10
+        bubble_height = text_height + 20
+        
+        # 对话框位置（在宠物上方）
+        bubble_x = self.pet_size // 2
+        bubble_y = 30
+        
+        # 创建对话框背景（方形，带底色）
+        self.speech_bubble = self.canvas.create_rectangle(
+            bubble_x - bubble_width//2, bubble_y - bubble_height//2,
+            bubble_x + bubble_width//2, bubble_y + bubble_height//2,
+            fill='#FFFBEA', outline='#333333', width=2
+        )
+        
+        # 创建对话框尾巴（三角形）
+        tail_points = [
+            bubble_x - 5, bubble_y + bubble_height//2,
+            bubble_x + 5, bubble_y + bubble_height//2,
+            bubble_x, bubble_y + bubble_height//2 + 10
+        ]
+        self.speech_tail = self.canvas.create_polygon(
+            tail_points, fill='#FFFBEA', outline='#333333', width=2
+        )
+        
+        # 创建文本
+        self.speech_text = self.canvas.create_text(
+            bubble_x, bubble_y,
+            text=text,
+            font=('微软雅黑', 10),
+            fill='black',
+            width=bubble_width - 10,
+            justify='center'
+        )
+        
+        self.is_speaking = True
+        
+        # 3秒后自动清除对话框
+        self.root.after(3000, self.clear_speech_bubble)
+
+    def clear_speech_bubble(self):
+        """清除对话框"""
+        if self.speech_bubble:
+            self.canvas.delete(self.speech_bubble)
+            self.speech_bubble = None
+        if hasattr(self, 'speech_tail') and self.speech_tail:
+            self.canvas.delete(self.speech_tail)
+            self.speech_tail = None
+        if self.speech_text:
+            self.canvas.delete(self.speech_text)
+            self.speech_text = None
+        self.is_speaking = False
+
+    def say_random_message(self, category='random'):
+        """随机说话"""
+        if category in self.talk_messages:
+            message = random.choice(self.talk_messages[category])
+            self.create_speech_bubble(message)
+
+    def change_emotion(self, emotion):
+        pass
+
+    def toggle_topmost(self):
+        pass
+
+    def move_to_corner(self):
+        pass
+
+    def toggle_pet_visibility(self):
+        pass
+
+    def hide_to_tray(self):
+        pass
+
+    def show_pet(self):
+        pass
+
+    def open_fish_reminder(self):
+        pass
+
+    def quit_app(self):
+        pass
+
+    def run(self):
+        self.root.mainloop()
+    def load_config(self):
         self.config_loader = ConfigLoader()
         self.configs = self.config_loader.load_all_configs()
         self.main_config = self.config_loader.get_main_config()
         self.messages_config = self.config_loader.get_messages_config()
-
-        self.root = tk.Tk()
-        self.root.title("桌面宠物")
-        self.root.overrideredirect(True)  # 移除窗口边框
-        self.root.attributes('-topmost', True)  # 始终置顶
-        self.root.attributes('-transparentcolor', 'white')  # 设置透明色
 
         # 从配置中获取窗口大小
         pet_config = self.main_config.get('pet', {})
@@ -124,6 +395,13 @@ class DesktopPet:
         else:
             y = int(y_pos)
         self.root.geometry(f"+{x}+{y}")
+        return pet_config
+
+class DesktopPet(BasePet):
+    def __init__(self):
+        super().__init__()
+        pet_config = self.load_config()
+        print("配置加载完成:")
 
         
         # 宠物状态
@@ -171,10 +449,9 @@ class DesktopPet:
         self.start_animation()
         self.start_behavior_monitoring()  # 启动行为监控
         self.start_eye_tracking()  # 启动眼球追踪
-        
+
         # 启动后说一句问候语
         self.root.after(1000, lambda: self.say_random_message('greeting'))
-
 
     def calculate_eye_position(self, eye_center_x, eye_center_y, mouse_x, mouse_y):
         """计算眼球位置"""
@@ -206,83 +483,17 @@ class DesktopPet:
         for emotion in self.emotions:
             # 创建图像
             img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
-            draw = ImageDraw.Draw(img)
-            
-            if emotion == 'normal':
-                # 普通表情 - 绿色圆形身体
-                draw.ellipse([10, 20, 70, 70], fill='#4CAF50', outline='#2E7D32', width=2)
-                # 眼睛白色部分
-                draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                # 嘴巴
-                draw.arc([35, 45, 45, 55], 0, 180, fill='black', width=2)
 
-                # 保存为PNG文件
-                def save_and_reload(img, filename="pet_normal.png"):
-                    img.save(filename, format="PNG")
-                    reloaded_img = Image.open(filename)
-                    return ImageTk.PhotoImage(reloaded_img)
-                self.pet_images[emotion] = save_and_reload(img)
-                continue  # 跳过后续的赋值，已处理
+            image_path = os.path.join(rf"D:\python工程\cute pet\image\defaultPet_{emotion}.png")
 
-            elif emotion == 'happy':
-                # 开心表情 - 黄色身体
-                draw.ellipse([10, 20, 70, 70], fill='#FFC107', outline='#FF8F00', width=2)
-                # 眼睛白色部分
-                draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                # 开心的嘴巴
-                draw.arc([30, 40, 50, 60], 0, 180, fill='black', width=3)
+            if os.path.exists(image_path):
+                # 如果文件存在，直接加载
+                img = Image.open(image_path)
+                self.pet_images[emotion] = ImageTk.PhotoImage(img)
+            else:
+                print(f"Image file '{image_path}' not found.")
 
-            elif emotion == 'sleepy':
-                # 困倦表情 - 蓝色身体
-                draw.ellipse([10, 20, 70, 70], fill='#2196F3', outline='#0D47A1', width=2)
-                # 困倦的眼睛（闭着的）
-                draw.ellipse([25, 33, 35, 37], fill='#FFFEFA', outline='black')
-                draw.ellipse([45, 33, 55, 37], fill='#FFFEFA', outline='black')
-                draw.line([25, 35, 35, 35], fill='black', width=2)
-                draw.line([45, 35, 55, 35], fill='black', width=2)
-                # 小嘴巴
-                draw.ellipse([38, 48, 42, 52], fill='black')
-                # Z字符表示睡觉
-                draw.text((55, 15), "Z", fill='black')
 
-            elif emotion == 'excited':
-                # 兴奋表情 - 红色身体
-                draw.ellipse([10, 20, 70, 70], fill='#F44336', outline='#B71C1C', width=2)
-                # 大眼睛白色部分
-                draw.ellipse([20, 25, 35, 40], fill='#FFFEFA', outline='black')
-                draw.ellipse([45, 25, 60, 40], fill='#FFFEFA', outline='black')
-                # 兴奋的嘴巴
-                draw.ellipse([35, 45, 45, 55], fill='black')
-
-            elif emotion == 'thinking':
-                # 思考表情 - 紫色身体
-                draw.ellipse([10, 20, 70, 70], fill='#9C27B0', outline='#4A148C', width=2)
-                # 眼睛白色部分（向上看）
-                draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                # 思考的嘴巴
-                draw.arc([35, 50, 45, 55], 0, 180, fill='black', width=2)
-                # 思考泡泡
-                draw.ellipse([55, 10, 65, 20], fill='white', outline='black')
-                draw.text((57, 12), "?", fill='black')
-                
-            elif emotion == 'curious':
-                # 好奇表情 - 橙色身体
-                draw.ellipse([10, 20, 70, 70], fill='#FF9800', outline='#E65100', width=2)
-                # 好奇的大眼睛白色部分（一大一小表示疑惑）
-                draw.ellipse([22, 28, 36, 42], fill='#FFFEFA', outline='black')  # 左眼大一些
-                draw.ellipse([44, 30, 54, 40], fill='#FFFEFA', outline='black')  # 右眼小一些
-                # 好奇的嘴巴（小圆形表示"哦"）
-                draw.ellipse([37, 47, 43, 53], fill='black')
-                # 感叹号表示惊讶
-                draw.text((60, 15), "!", fill='black')
-
-            # 添加可爱的腮红
-            if emotion in ['happy', 'excited', 'curious']:
-                draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-                draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
             
             self.pet_images[emotion] = ImageTk.PhotoImage(img)
 
@@ -312,12 +523,9 @@ class DesktopPet:
             blink_animation()
 
             # 修改 create_dynamic_pet_image 以支持眨眼
-            old_create_dynamic_pet_image = self.create_dynamic_pet_image
             def create_dynamic_pet_image_with_blink(emotion, mouse_x, mouse_y):
                 img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(img)
-                pet_center_x = 40
-                pet_center_y = 50
 
                 blink = self.is_blinking
 
@@ -580,137 +788,9 @@ class DesktopPet:
         # 重新绑定鼠标移动事件
         self.canvas.bind("<Motion>", on_mouse_motion_wrapper)
 
-    def create_tray_icon(self):
-        """创建系统托盘图标"""
-        # 创建托盘图标图像（简化的宠物图标）
-        tray_image = Image.new('RGB', (64, 64), color='white')
-        draw = ImageDraw.Draw(tray_image)
-        
-        # 绘制可爱的宠物图标
-        # 身体
-        draw.ellipse([5, 15, 55, 55], fill='#4CAF50', outline='#2E7D32', width=2)
-        # 眼睛
-        draw.ellipse([15, 25, 25, 35], fill='white', outline='black')
-        draw.ellipse([35, 25, 45, 35], fill='white', outline='black')
-        draw.ellipse([18, 28, 22, 32], fill='black')
-        draw.ellipse([38, 28, 42, 32], fill='black')
-        # 嘴巴
-        draw.arc([25, 35, 35, 45], 0, 180, fill='black', width=2)
-        # 可爱的腮红
-        draw.ellipse([8, 35, 15, 42], fill='#FF9999')
-        draw.ellipse([45, 35, 52, 42], fill='#FF9999')
-        
-        # 创建托盘菜单
-        menu = pystray.Menu(
-            item('显示/隐藏宠物', self.toggle_pet_visibility, default=True),
-            pystray.Menu.SEPARATOR,
-            item('🐟 打开摸鱼提醒器', self.open_fish_reminder),
-            pystray.Menu.SEPARATOR,
-            # 表情切换子菜单
-            item('切换表情', pystray.Menu(
-                item('😊 开心', lambda: self.change_emotion('happy')),
-                item('😴 困倦', lambda: self.change_emotion('sleepy')),
-                item('🤔 思考', lambda: self.change_emotion('thinking')),
-                item('🎉 兴奋', lambda: self.change_emotion('excited')),
-                item('🤨 好奇', lambda: self.change_emotion('curious')),
-                item('😐 普通', lambda: self.change_emotion('normal'))
-            )),
-            pystray.Menu.SEPARATOR,
-            item('💬 随机说话', lambda: self.say_random_message('random')),
-            item('📌 切换置顶', self.toggle_topmost),
-            item('🎯 移到右下角', self.move_to_corner),
-            pystray.Menu.SEPARATOR,
-            item('❌ 退出程序', self.quit_app)
-        )
-        
-        # 创建托盘图标对象
-        self.tray_icon = pystray.Icon(
-            "桌面宠物",
-            tray_image,
-            "桌面宠物 - 可爱的桌面伙伴",
-            menu
-        )
 
-    def start_tray_icon(self):
-        """在后台线程中启动托盘图标"""
-        def run_tray():
-            try:
-                self.tray_icon.run()
-            except Exception as e:
-                print(f"托盘图标启动失败: {e}")
-        
-        self.tray_thread = threading.Thread(target=run_tray, daemon=True)
-        self.tray_thread.start()
 
-    def create_widgets(self):
-        """创建界面元素"""
-        # 主画布
-        self.canvas = tk.Canvas(
-            self.root, 
-            width=self.pet_size, 
-            height=self.total_height,
-            bg='white',
-            highlightthickness=0
-        )
-        self.canvas.pack()
-        
-        # 显示宠物图像（位置调整到下方，为对话框留出空间）
-        self.pet_sprite = self.canvas.create_image(
-            self.pet_size//2, 
-            self.total_height - self.pet_size//2, 
-            image=self.pet_images[self.current_emotion]
-        )
-        
-        # 创建右键菜单
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="🐟 打开摸鱼提醒器", command=self.open_fish_reminder)
-        self.context_menu.add_separator()
-        
-        # 添加"切换心情"子菜单
-        emotion_menu = tk.Menu(self.context_menu, tearoff=0)
-        emotion_menu.add_command(label="😊 开心", command=lambda: self.change_emotion('happy'))
-        emotion_menu.add_command(label="😴 困倦", command=lambda: self.change_emotion('sleepy'))
-        emotion_menu.add_command(label="🤔 思考", command=lambda: self.change_emotion('thinking'))
-        emotion_menu.add_command(label="🎉 兴奋", command=lambda: self.change_emotion('excited'))
-        emotion_menu.add_command(label="🤨 好奇", command=lambda: self.change_emotion('curious'))
-        emotion_menu.add_command(label="😐 普通", command=lambda: self.change_emotion('normal'))
-        self.context_menu.add_cascade(label="切换心情", menu=emotion_menu)
-        
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="💬 随机说话", command=lambda: self.say_random_message('random'))
-        self.context_menu.add_command(label="📌 置顶/取消置顶", command=self.toggle_topmost)
-        self.context_menu.add_command(label="🎯 移到右下角", command=self.move_to_corner)
-        self.context_menu.add_command(label="👁️ 隐藏到托盘", command=self.hide_to_tray)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="❌ 退出", command=self.quit_app)
 
-    def bind_events(self):
-        """绑定事件"""
-        # 鼠标事件
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        self.canvas.bind("<Button-3>", self.show_context_menu)  # 右键菜单
-        self.canvas.bind("<Double-Button-1>", self.on_double_click)  # 双击切换表情
-        
-        # 鼠标悬停事件
-        self.canvas.bind("<Enter>", self.on_mouse_enter)
-        self.canvas.bind("<Leave>", self.on_mouse_leave)
-        self.canvas.bind("<Motion>", self.on_mouse_motion)  # 鼠标移动事件
-
-    def on_mouse_motion(self, event):
-        """鼠标移动事件"""
-        # 转换为相对于宠物图像的坐标
-        # 宠物图像是80x80，显示在100x150窗口的下方
-        pet_offset_x = (self.pet_size - 80) // 2  # 居中偏移
-        pet_offset_y = self.total_height - self.pet_size  # 下方偏移
-        
-        self.mouse_x = event.x - pet_offset_x
-        self.mouse_y = event.y - pet_offset_y
-
-    def update_interaction_time(self):
-        """更新最后交互时间"""
-        self.last_interaction_time = time.time()
 
     def start_behavior_monitoring(self):
         """开始行为监控 - 根据交互情况自动切换表情"""
@@ -973,12 +1053,7 @@ class DesktopPet:
         else:
             self.hide_to_tray()
 
-    def hide_to_tray(self):
-        """隐藏到托盘"""
-        self.is_hidden = True
-        self.mouse_over = False  # 重置鼠标状态
-        self.clear_speech_bubble()  # 清除对话框
-        self.root.withdraw()  # 隐藏窗口
+
 
     def show_pet(self):
         """显示宠物"""
@@ -1084,18 +1159,6 @@ if __name__ == "__main__":
         print("🐾 桌面宠物启动中...")
         pet = DesktopPet()
         print("✨ 桌面宠物已启动！")
-        print("📌 使用说明：")
-        print("   • 默认状态：normal表情")
-        print("   • 点击宠物：开心表情并说话")
-        print("   • 拖拽移动：好奇表情")
-        print("   • 双击宠物：兴奋表情")
-        print("   • 鼠标悬停：开心表情，眼睛跟随鼠标")
-        print("   • 鼠标离开：恢复normal表情")
-        print("   • 待机60秒：思考表情")
-        print("   • 待机300秒：困倦表情")
-        print("   • 眼睛会智能跟随鼠标方向！")
-        print("   • 右键打开菜单")
-        print("   • 托盘图标可控制显示/隐藏")
         pet.run()
     except Exception as e:
         print(f"❌ 启动失败: {e}")
