@@ -91,13 +91,18 @@ class BasePet:
         self.root.overrideredirect(True)  # 去除窗口边框和标题栏，使窗口无边框
         self.root.attributes('-topmost', True)  # 设置窗口始终置顶
         self.root.attributes('-transparentcolor', 'white')  # 设置窗口白色为透明，实现宠物悬浮效果
-        self.pet_size = 100
-        self.total_height = 150
-        self.root.geometry(f"{self.pet_size}x{self.total_height}")
+
+        self.load_config()
+        print("配置加载完成:", self.pet_config)
+
+
+        # 获取屏幕宽度和高度
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        x = screen_width - self.pet_size - 50
-        y = screen_height - self.total_height - 100
+        # 计算宠物窗口移动到右下角的位置
+        x = screen_width - self.pet_size - 150  # 距离屏幕右侧150像素
+        y = screen_height - self.total_height - 200  # 距离屏幕底部200像素
+        # 设置窗口位置到右下角
         self.root.geometry(f"+{x}+{y}")
 
         self.emotions = ['normal', 'happy', 'sleepy', 'excited', 'thinking', 'curious']
@@ -106,39 +111,55 @@ class BasePet:
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.last_interaction_time = time.time()
-        self.idle_time_threshold = 300
-        self.thinking_time_threshold = 60
-        self.mouse_over = False
-        self.mouse_x = 0
-        self.mouse_y = 0
+        
+        # 鼠标状态追踪
+        self.mouse_over = False  # 追踪鼠标是否在宠物上方
+        self.mouse_x = 0  # 鼠标相对于宠物的X坐标
+        self.mouse_y = 0  # 鼠标相对于宠物的Y坐标
+
+        # 说话相关
         self.is_speaking = False
         self.speech_bubble = None
         self.speech_text = None
-        self.animation_frame = 0
-        self.animation_speed = 500
+        self.talk_messages = self.messages_config
+
+        self.is_dragging = False
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+
+        self.animation_frame = 0    # 动画帧
+        self.animation_speed = 500   # 动画速度
+        self.expand_scale = 3  # 扩展区域相对于宠物图像的比例
         self.tray_icon = None
         self.tray_thread = None
         self.is_hidden = False
         self.fish_reminder_process = None
-
 
         print("BasePet initialized.")
 
     def create_widgets(self):
         """
         初始化并创建宠物应用的主界面控件。
-        - 创建用于显示宠物图像的主Canvas画布。
-        - 添加右键菜单，包含以下选项：
-            - "🐟 打开摸鱼提醒器"：打开摸鱼提醒工具。
-            - "切换心情"：子菜单，可切换宠物表情。
-            - "💬 随机说话"：让宠物随机说一句话。
-            - "📌 置顶/取消置顶"：切换窗口置顶状态。
-            - "🎯 移到右下角"：将宠物窗口移动到屏幕右下角。
-            - "👁️ 隐藏到托盘"：将窗口隐藏到系统托盘。
-            - "❌ 退出"：退出应用程序。
-        - 设置菜单命令的事件绑定。
         """
 
+        # 新增底层透明扩展图层
+        self.expand_canvas = tk.Canvas(
+            self.root,
+            width=self.pet_size * self.expand_scale,
+            height=self.total_height * self.expand_scale,
+            bg='red',  # 透明色由窗口属性控制
+            highlightthickness=0
+        )
+        # 让扩展canvas与root窗口左上角对齐
+        self.expand_canvas.place(x=0, y=0)
+
+        # 原有宠物主canvas，放在窗口的中间偏下
+        canvas_x = (self.root.winfo_width() - self.pet_size) // 2
+        canvas_y = int(self.root.winfo_height() * 4/7 - self.total_height // 2)
+        # 由于窗口刚创建时winfo_width和winfo_height可能为1，需要用geometry设置后再update
+        self.root.update_idletasks()
+        canvas_x = (self.root.winfo_width() - self.pet_size) // 2
+        canvas_y = int(self.root.winfo_height() * 4 / 7 - self.total_height // 2)
         self.canvas = tk.Canvas(
             self.root,
             width=self.pet_size,
@@ -146,10 +167,11 @@ class BasePet:
             bg='white',
             highlightthickness=0
         )
-        self.canvas.pack()
+        self.canvas.place(x=canvas_x, y=canvas_y)
+
         self.pet_sprite = self.canvas.create_image(
-            self.pet_size//2,
-            self.total_height - self.pet_size//2,
+            self.pet_size // 2,
+            self.total_height - self.pet_size // 2,
             image=None
         )
         self.context_menu = tk.Menu(self.root, tearoff=0)
@@ -167,6 +189,9 @@ class BasePet:
         self.context_menu.add_separator()
         self.context_menu.add_command(label="❌ 退出", command=self.quit_app)
 
+
+
+
     def bind_events(self):
         self.canvas.bind("<Button-1>", self.on_click)
         self.canvas.bind("<B1-Motion>", self.on_drag)
@@ -175,7 +200,7 @@ class BasePet:
         self.canvas.bind("<Double-Button-1>", self.on_double_click)
         self.canvas.bind("<Enter>", self.on_mouse_enter)
         self.canvas.bind("<Leave>", self.on_mouse_leave)
-        self.canvas.bind("<Motion>", self.on_mouse_motion)
+        self.expand_canvas.bind("<Motion>", self.on_mouse_motion)
 
     def on_click(self, event):
         pass
@@ -204,9 +229,12 @@ class BasePet:
         # 宠物图像是80x80，显示在100x150窗口的下方
         pet_offset_x = (self.pet_size - 80) // 2  # 居中偏移
         pet_offset_y = self.total_height - self.pet_size  # 下方偏移
-        
+        # mouse_x, mouse_y是相对于窗口的坐标
         self.mouse_x = event.x - pet_offset_x
         self.mouse_y = event.y - pet_offset_y
+        # 记录本次鼠标移动时间
+        self.last_mouse_move_time = time.time()
+        print('last_mouse_move_time:', self.last_mouse_move_time)
 
     def create_tray_icon(self):
         """创建系统托盘图标"""
@@ -347,19 +375,83 @@ class BasePet:
         pass
 
     def toggle_pet_visibility(self):
-        pass
+        """切换宠物显示/隐藏"""
+        if self.is_hidden:
+            self.show_pet()
+        else:
+            self.hide_to_tray()
 
-    def hide_to_tray(self):
-        pass
 
     def show_pet(self):
         pass
 
+    def update_interaction_time(self):
+        """更新最后交互时间"""
+        self.last_interaction_time = time.time()
+
+    def _start_fish_reminder(self, fish_reminder_path):
+        """启动摸鱼提醒器"""
+        try:
+            if getattr(sys, 'frozen', False):
+                # 打包后模式 - 调用exe
+                base_path = os.path.dirname(sys.executable)
+                exe_path = os.path.join(base_path, "TouchFishReminder.exe")
+                self.fish_reminder_process = subprocess.Popen(
+                    [exe_path],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            else:
+                # 开发模式 - 调用python脚本
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                fish_reminder_path = os.path.join(current_dir, "TouchFishReminder.py")
+                if os.path.exists(fish_reminder_path):
+                   # 打开TouchFishReminder.py
+                   self.fish_reminder_process = subprocess.Popen(
+                       [sys.executable, fish_reminder_path],
+                       creationflags=subprocess.CREATE_NO_WINDOW
+                   )
+        except Exception as e:
+            print(f"启动摸鱼提醒器失败: {e}")
+
     def open_fish_reminder(self):
-        pass
+        """打开摸鱼提醒器GUI"""
+        self.update_interaction_time()
+        
+        # 检查是否已运行
+        if self.fish_reminder_process and self.fish_reminder_process.poll() is None:
+            if self.tray_icon:
+                self.tray_icon.notify("摸鱼提醒器已经在运行中！", "桌面宠物")
+            self.change_emotion('normal')
+            self.create_speech_bubble("摸鱼提醒器已经开着呢~")
+            return
+        
+        # 获取路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        fish_reminder_path = os.path.join(current_dir, "TouchFishReminder.py")
+        if not os.path.exists(fish_reminder_path):
+            fish_reminder_path = "TouchFishReminder.exe"
+        if os.path.exists(fish_reminder_path):
+            self._start_fish_reminder(fish_reminder_path)
+        else:
+            print("摸鱼提醒器文件不存在，请检查路径！")
+        # try:
+        #     self._start_fish_reminder()
+        # except Exception as e:
+        #     self._handle_error(f"启动摸鱼提醒器失败: {e}")
 
     def quit_app(self):
-        pass
+        """退出应用"""
+        # 关闭摸鱼提醒器进程
+        if self.fish_reminder_process and self.fish_reminder_process.poll() is None:
+            self.fish_reminder_process.terminate()
+        
+        # 停止托盘图标
+        if self.tray_icon:
+            self.tray_icon.stop()
+        
+        self.root.quit()
+        self.root.destroy()
+        sys.exit()
 
     def run(self):
         self.root.mainloop()
@@ -370,10 +462,10 @@ class BasePet:
         self.messages_config = self.config_loader.get_messages_config()
 
         # 从配置中获取窗口大小
-        pet_config = self.main_config.get('pet', {})
-        self.pet_size = pet_config.get('size', 100)
-        self.total_height = pet_config.get('total_height', 150)  # 增加高度来容纳对话框
-        self.root.geometry(f"{self.pet_size}x{self.total_height}")
+        self.pet_config = self.main_config.get('pet', {})
+        self.pet_size = self.pet_config.get('size', 100)
+        self.total_height = self.pet_config.get('total_height', 150)  # 增加高度来容纳对话框
+        self.root.geometry(f"{self.pet_size*3}x{self.total_height*2}")
         
         # 获取屏幕尺寸并设置初始位置（右下角）
         screen_width = self.root.winfo_screenwidth()
@@ -395,51 +487,20 @@ class BasePet:
         else:
             y = int(y_pos)
         self.root.geometry(f"+{x}+{y}")
-        return pet_config
+
+        self.idle_time_threshold = self.pet_config.get('idle_time_threshold', 300)  # 进入困倦状态的时间阈值，单位秒
+        self.thinking_time_threshold = self.pet_config.get('thinking_time_threshold', 60)  # 进入思考状态的时间阈值，单位秒
 
 class DesktopPet(BasePet):
     def __init__(self):
         super().__init__()
-        pet_config = self.load_config()
-        print("配置加载完成:")
-
-        
         # 宠物状态
         self.emotions = ['normal', 'happy', 'sleepy', 'excited', 'thinking', 'curious']
         self.current_emotion = 'normal'  # 初始状态为正常
-        self.is_dragging = False
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        
+
         # 从配置中获取时间相关参数
         self.last_interaction_time = time.time()
-        self.idle_time_threshold = pet_config.get('idle_time_threshold', 300)  # 300秒后进入困倦状态
-        self.thinking_time_threshold = pet_config.get('thinking_time_threshold', 60)  # 60秒后进入思考状态
-        
-        
-        # 鼠标状态追踪
-        self.mouse_over = False  # 追踪鼠标是否在宠物上方
-        self.mouse_x = 0  # 鼠标相对于宠物的X坐标
-        self.mouse_y = 0  # 鼠标相对于宠物的Y坐标
 
-        # 说话相关
-        self.is_speaking = False
-        self.speech_bubble = None
-        self.speech_text = None
-        self.talk_messages = self.messages_config
-        
-        # 动画相关
-        self.animation_frame = 0
-        self.animation_speed = pet_config.get('animation_speed', 500)  # 毫秒
-        
-        # 摸鱼提醒器进程
-        self.fish_reminder_process = None
-        
-        # 托盘相关
-        self.tray_icon = None
-        self.tray_thread = None
-        self.is_hidden = False
-        
         # 初始化顺序很重要
         self.create_pet_images()
         self.create_tray_icon()  # 在界面创建前先创建托盘图标
@@ -479,318 +540,103 @@ class DesktopPet(BasePet):
     def create_pet_images(self):
         """创建不同表情的宠物图像"""
         self.pet_images = {}
-        
-        for emotion in self.emotions:
-            # 创建图像
-            img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
+                    # 眨眼动画相关
+        self.blink_frame = 0
+        self.is_blinking = False
+        self.blink_interval = random.randint(80, 150)  # 眨眼间隔帧数
 
-            image_path = os.path.join(rf"D:\python工程\cute pet\image\defaultPet_{emotion}.png")
-
-            if os.path.exists(image_path):
-                # 如果文件存在，直接加载
-                img = Image.open(image_path)
-                self.pet_images[emotion] = ImageTk.PhotoImage(img)
-            else:
-                print(f"Image file '{image_path}' not found.")
-
-
-            
-            self.pet_images[emotion] = ImageTk.PhotoImage(img)
-
-            # 眨眼动画相关
-            self.blink_frame = 0
-            self.is_blinking = False
-            self.blink_interval = random.randint(80, 150)  # 眨眼间隔帧数
-
-            def blink_animation():
-                if not self.is_hidden:
-                    self.blink_frame += 1
-                # 随机眨眼
-                if not self.is_blinking and self.blink_frame >= self.blink_interval:
-                    self.is_blinking = True
-                    self.blink_frame = 0
-                    self.blink_interval = random.randint(80, 150)
-                    # 眨眼持续帧数
-                    self.blink_duration = 8
+        def blink_animation():
+            if not self.is_hidden:
+                self.blink_frame += 1
+            # 随机眨眼
+            if not self.is_blinking and self.blink_frame >= self.blink_interval:
+                self.is_blinking = True
+                self.blink_frame = 0
+                self.blink_interval = random.randint(80, 150)
+                # 眨眼持续帧数
+                self.blink_duration = 8
+                self.blink_count = 0
+            if self.is_blinking:
+                self.blink_count += 1
+                # 眨眼持续一段时间
+                if self.blink_count >= self.blink_duration:
+                    self.is_blinking = False
                     self.blink_count = 0
-                if self.is_blinking:
-                    self.blink_count += 1
-                    # 眨眼持续一段时间
-                    if self.blink_count >= self.blink_duration:
-                        self.is_blinking = False
-                        self.blink_count = 0
-                self.root.after(50, blink_animation)
-            blink_animation()
+            self.root.after(50, blink_animation)
+        blink_animation()
+        for emotion in self.emotions:
+            self.pet_images[emotion] = self.create_dynamic_pet_image_with_blink(emotion, self.mouse_x, self.mouse_y)
 
-            # 修改 create_dynamic_pet_image 以支持眨眼
-            def create_dynamic_pet_image_with_blink(emotion, mouse_x, mouse_y):
-                img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
-                draw = ImageDraw.Draw(img)
-
-                blink = self.is_blinking
-
-                if emotion == 'normal':
-                    draw.ellipse([10, 20, 70, 70], fill='#4CAF50', outline='#2E7D32', width=2)
-                    # 眼睛
-                    if blink:
-                        # 画闭眼（横线）
-                        draw.line([25, 35, 35, 35], fill='black', width=3)
-                        draw.line([45, 35, 55, 35], fill='black', width=3)
-                    else:
-                        draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                        draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                        left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
-                        right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-                        draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-                        draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-                    draw.arc([35, 45, 45, 55], 0, 180, fill='black', width=2)
-
-                elif emotion == 'happy':
-                    draw.ellipse([10, 20, 70, 70], fill='#FFC107', outline='#FF8F00', width=2)
-                    if blink:
-                        draw.line([25, 35, 35, 35], fill='black', width=3)
-                        draw.line([45, 35, 55, 35], fill='black', width=3)
-                    else:
-                        draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                        draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                        left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
-                        right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-                        draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-                        draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-                    draw.arc([30, 40, 50, 60], 0, 180, fill='black', width=3)
-                    draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-                    draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
-
-                elif emotion == 'sleepy':
-                    draw.ellipse([10, 20, 70, 70], fill='#2196F3', outline='#0D47A1', width=2)
-                    # 困倦时始终闭眼
-                    draw.ellipse([25, 33, 35, 37], fill='#FFFEFA', outline='black')
-                    draw.ellipse([45, 33, 55, 37], fill='#FFFEFA', outline='black')
-                    draw.line([25, 35, 35, 35], fill='black', width=2)
-                    draw.line([45, 35, 55, 35], fill='black', width=2)
-                    draw.ellipse([38, 48, 42, 52], fill='black')
-                    z_count = (self.animation_frame // 5) % 4
-                    z_text = "z" * z_count
-                    draw.text((55, 15), z_text, fill='black')
-
-                elif emotion == 'excited':
-                    draw.ellipse([10, 20, 70, 70], fill='#F44336', outline='#B71C1C', width=2)
-                    if blink:
-                        draw.line([20, 32, 35, 32], fill='black', width=3)
-                        draw.line([45, 32, 60, 32], fill='black', width=3)
-                    else:
-                        draw.ellipse([20, 25, 35, 40], fill='#FFFEFA', outline='black')
-                        draw.ellipse([45, 25, 60, 40], fill='#FFFEFA', outline='black')
-                        left_eye_x, left_eye_y = self.calculate_eye_position(27.5, 32.5, mouse_x, mouse_y)
-                        right_eye_x, right_eye_y = self.calculate_eye_position(52.5, 32.5, mouse_x, mouse_y)
-                        draw.ellipse([left_eye_x-2.5, left_eye_y-2.5, left_eye_x+2.5, left_eye_y+2.5], fill='black')
-                        draw.ellipse([right_eye_x-2.5, right_eye_y-2.5, right_eye_x+2.5, right_eye_y+2.5], fill='black')
-                    draw.ellipse([35, 45, 45, 55], fill='black')
-                    draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-                    draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
-
-                elif emotion == 'thinking':
-                    draw.ellipse([10, 20, 70, 70], fill='#9C27B0', outline='#4A148C', width=2)
-                    if blink:
-                        draw.line([25, 32, 35, 32], fill='black', width=3)
-                        draw.line([45, 32, 55, 32], fill='black', width=3)
-                    else:
-                        draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-                        draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-                        left_eye_x, left_eye_y = self.calculate_eye_position(30, 32, mouse_x, mouse_y-5)
-                        right_eye_x, right_eye_y = self.calculate_eye_position(50, 32, mouse_x, mouse_y-5)
-                        draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-                        draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-                    draw.arc([35, 50, 45, 55], 0, 180, fill='black', width=2)
-                    draw.ellipse([55, 10, 65, 20], fill='white', outline='black')
-                    draw.text((57, 12), "?", fill='black')
-
-                elif emotion == 'curious':
-                    draw.ellipse([10, 20, 70, 70], fill='#FF9800', outline='#E65100', width=2)
-                    if blink:
-                        draw.line([22, 35, 36, 35], fill='black', width=3)
-                        draw.line([44, 35, 54, 35], fill='black', width=3)
-                    else:
-                        draw.ellipse([22, 28, 36, 42], fill='#FFFEFA', outline='black')
-                        draw.ellipse([44, 30, 54, 40], fill='#FFFEFA', outline='black')
-                        left_eye_x, left_eye_y = self.calculate_eye_position(29, 35, mouse_x, mouse_y)
-                        right_eye_x, right_eye_y = self.calculate_eye_position(49, 35, mouse_x, mouse_y)
-                        draw.ellipse([left_eye_x-3, left_eye_y-3, left_eye_x+3, left_eye_y+3], fill='black')
-                        draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-                    draw.ellipse([37, 47, 43, 53], fill='black')
-                    draw.text((60, 15), "!", fill='black')
-                    draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-                    draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
-
-                return ImageTk.PhotoImage(img)
-            self.create_dynamic_pet_image = create_dynamic_pet_image_with_blink
-
-    def create_dynamic_pet_image(self, emotion, mouse_x, mouse_y):
-        """根据鼠标位置动态创建宠物图像"""
-        # 创建图像
-        img = Image.new('RGBA', (80, 80), (255, 255, 255, 0))
+    def create_dynamic_pet_image_with_blink(self, emotion, mouse_x, mouse_y):
+        # 根据是否眨眼选择不同的图片
+        if self.is_blinking:
+            image_path = rf"D:\python工程\cute pet\image\blink_{emotion}.png"
+        else:
+            image_path = rf"D:\python工程\cute pet\image\defaultPet_{emotion}.png"
+        
+        # 加载图片
+        img = Image.open(image_path).convert('RGBA')
         draw = ImageDraw.Draw(img)
         
-        if emotion == 'normal':
-            # 普通表情 - 绿色圆形身体
-            draw.ellipse([10, 20, 70, 70], fill='#4CAF50', outline='#2E7D32', width=2)
-            # 眼睛白色部分
-            draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-            draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-            
-            # 计算眼球位置
-            left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
-            right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-            
-            # 画眼球
-            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-            # 嘴巴
-            draw.arc([35, 45, 45, 55], 0, 180, fill='black', width=2)
-
-        elif emotion == 'happy':
-            # 开心表情 - 黄色身体
-            draw.ellipse([10, 20, 70, 70], fill='#FFC107', outline='#FF8F00', width=2)
-            # 眼睛白色部分
-            draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-            draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-            
-            # 计算眼球位置
-            left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
-            right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
-            
-            # 画眼球
-            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-            # 开心的嘴巴
-            draw.arc([30, 40, 50, 60], 0, 180, fill='black', width=3)
-            # 腮红
-            draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-            draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
-
-        elif emotion == 'sleepy':
-            # 困倦表情 - 蓝色身体
-            draw.ellipse([10, 20, 70, 70], fill='#2196F3', outline='#0D47A1', width=2)
-            # 困倦的眼睛（闭着的，不跟随鼠标）
-            draw.ellipse([25, 33, 35, 37], fill='#FFFEFA', outline='black')
-            draw.ellipse([45, 33, 55, 37], fill='#FFFEFA', outline='black')
-            draw.line([25, 35, 35, 35], fill='black', width=2)
-            draw.line([45, 35, 55, 35], fill='black', width=2)
-            # 小嘴巴
-            draw.ellipse([38, 48, 42, 52], fill='black')
-            # "zzz"动画 - 依次显示不同数量的z，形成动画效果
-            z_count = (self.animation_frame // 5) % 4   # 0~3个z循环
-            z_text = "z" * z_count
-            draw.text((55, 15), z_text, fill='black')
-
-        elif emotion == 'excited':
-            # 兴奋表情 - 红色身体
-            draw.ellipse([10, 20, 70, 70], fill='#F44336', outline='#B71C1C', width=2)
-            # 大眼睛白色部分
-            draw.ellipse([20, 25, 35, 40], fill='#FFFEFA', outline='black')
-            draw.ellipse([45, 25, 60, 40], fill='#FFFEFA', outline='black')
-            
-            # 计算眼球位置（不同的眼睛中心）
-            left_eye_x, left_eye_y = self.calculate_eye_position(27.5, 32.5, mouse_x, mouse_y)
-            right_eye_x, right_eye_y = self.calculate_eye_position(52.5, 32.5, mouse_x, mouse_y)
-
-            
-            # 画眼球
-            draw.ellipse([left_eye_x-2.5, left_eye_y-2.5, left_eye_x+2.5, left_eye_y+2.5], fill='black')
-            draw.ellipse([right_eye_x-2.5, right_eye_y-2.5, right_eye_x+2.5, right_eye_y+2.5], fill='black')
-            # 兴奋的嘴巴
-            draw.ellipse([35, 45, 45, 55], fill='black')
-            # 腮红
-            draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-            draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
-
-        elif emotion == 'thinking':
-            # 思考表情 - 紫色身体
-            draw.ellipse([10, 20, 70, 70], fill='#9C27B0', outline='#4A148C', width=2)
-            # 眼睛白色部分
-            draw.ellipse([25, 30, 35, 40], fill='#FFFEFA', outline='black')
-            draw.ellipse([45, 30, 55, 40], fill='#FFFEFA', outline='black')
-            
-            # 思考时眼睛倾向于向上看，但仍会跟随鼠标
-            # 添加向上偏移
-            left_eye_x, left_eye_y = self.calculate_eye_position(30, 32, mouse_x, mouse_y-5)
-            right_eye_x, right_eye_y = self.calculate_eye_position(50, 32, mouse_x, mouse_y-5)
-            # else:
-            #     left_eye_x, left_eye_y = 30, 32
-            #     right_eye_x, right_eye_y = 50, 32
-            
-            # 画眼球
-            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
-            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-            # 思考的嘴巴
-            draw.arc([35, 50, 45, 55], 0, 180, fill='black', width=2)
-            # 思考泡泡
-            draw.ellipse([55, 10, 65, 20], fill='white', outline='black')
-            draw.text((57, 12), "?", fill='black')
-                
-        elif emotion == 'curious':
-            # 好奇表情 - 橙色身体
-            draw.ellipse([10, 20, 70, 70], fill='#FF9800', outline='#E65100', width=2)
-            # 好奇的大眼睛白色部分（一大一小表示疑惑）
-            draw.ellipse([22, 28, 36, 42], fill='#FFFEFA', outline='black')  # 左眼大一些
-            draw.ellipse([44, 30, 54, 40], fill='#FFFEFA', outline='black')  # 右眼小一些
-            
-            # 计算眼球位置（不同大小的眼睛）
-            left_eye_x, left_eye_y = self.calculate_eye_position(29, 35, mouse_x, mouse_y)
-            right_eye_x, right_eye_y = self.calculate_eye_position(49, 35, mouse_x, mouse_y)
-            # else:
-            #     left_eye_x, left_eye_y = 29, 35
-            #     right_eye_x, right_eye_y = 49, 35
-            
-            # 画眼球（左眼大一些）
-            draw.ellipse([left_eye_x-3, left_eye_y-3, left_eye_x+3, left_eye_y+3], fill='black')
-            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
-            # 好奇的嘴巴（小圆形表示"哦"）
-            draw.ellipse([37, 47, 43, 53], fill='black')
-            # 感叹号表示惊讶
-            draw.text((60, 15), "!", fill='black')
-            # 腮红
-            draw.ellipse([15, 45, 25, 55], fill='#FF9999', outline=None)
-            draw.ellipse([55, 45, 65, 55], fill='#FF9999', outline=None)
+        # 如果不是困倦状态且没有眨眼，绘制动态眼球
+        if emotion != 'sleepy' and not self.is_blinking:
+            self.draw_eyes_with_movement(draw, emotion, mouse_x, mouse_y)
         
         return ImageTk.PhotoImage(img)
 
-    def start_eye_tracking(self):
-        """启动眼球追踪"""
-        # 记录上次鼠标移动时间
-        self.last_mouse_move_time = time.time()
+    def draw_eyes_with_movement(self, draw, emotion, mouse_x, mouse_y):
+        """绘制带有动态追踪效果的眼球"""
+        if emotion == 'normal':
+            left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
+            right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
+            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
+            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
 
+        elif emotion == 'happy':
+            left_eye_x, left_eye_y = self.calculate_eye_position(30, 35, mouse_x, mouse_y)
+            right_eye_x, right_eye_y = self.calculate_eye_position(50, 35, mouse_x, mouse_y)
+            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
+            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
+
+        elif emotion == 'excited':
+            left_eye_x, left_eye_y = self.calculate_eye_position(27.5, 32.5, mouse_x, mouse_y)
+            right_eye_x, right_eye_y = self.calculate_eye_position(52.5, 32.5, mouse_x, mouse_y)
+            draw.ellipse([left_eye_x-2.5, left_eye_y-2.5, left_eye_x+2.5, left_eye_y+2.5], fill='black')
+            draw.ellipse([right_eye_x-2.5, right_eye_y-2.5, right_eye_x+2.5, right_eye_y+2.5], fill='black')
+
+        elif emotion == 'thinking':
+            left_eye_x, left_eye_y = self.calculate_eye_position(30, 32, mouse_x, mouse_y-5)
+            right_eye_x, right_eye_y = self.calculate_eye_position(50, 32, mouse_x, mouse_y-5)
+            draw.ellipse([left_eye_x-2, left_eye_y-2, left_eye_x+2, left_eye_y+2], fill='black')
+            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
+
+        elif emotion == 'curious':
+            left_eye_x, left_eye_y = self.calculate_eye_position(29, 35, mouse_x, mouse_y)
+            right_eye_x, right_eye_y = self.calculate_eye_position(49, 35, mouse_x, mouse_y)
+            draw.ellipse([left_eye_x-3, left_eye_y-3, left_eye_x+3, left_eye_y+3], fill='black')
+            draw.ellipse([right_eye_x-2, right_eye_y-2, right_eye_x+2, right_eye_y+2], fill='black')
+
+    def start_eye_tracking(self):
+        """启动眼球追踪"""   
+        self.last_mouse_move_time = time.time()
         def track_eyes():
             if not self.is_hidden:
                 # 更新宠物图像
-                new_image = self.create_dynamic_pet_image(self.current_emotion, self.mouse_x, self.mouse_y)
+                new_image = self.create_dynamic_pet_image_with_blink(self.current_emotion, self.mouse_x, self.mouse_y)
                 self.canvas.itemconfig(self.pet_sprite, image=new_image)
                 # 保持引用避免被垃圾回收
                 self.current_pet_image = new_image
 
                 # 检查是否需要重置眼球位置
-                if time.time() - self.last_mouse_move_time > 10:
+                if time.time() - self.last_mouse_move_time > 5:# 单位秒
                     # 回到默认位置（宠物中心）
+                    print('reset mouse position',"time:",time.time())
                     self.mouse_x = self.pet_size // 2
                     self.mouse_y = self.total_height - self.pet_size // 2
 
             # 每100ms更新一次
             self.root.after(100, track_eyes)
         track_eyes()
-
-        # 鼠标移动时更新last_mouse_move_time
-        def on_mouse_motion_wrapper(event):
-            self.last_mouse_move_time = time.time()
-            pet_offset_x = (self.pet_size - 80) // 2
-            pet_offset_y = self.total_height - self.pet_size
-            self.mouse_x = event.x - pet_offset_x
-            self.mouse_y = event.y - pet_offset_y
-        # 重新绑定鼠标移动事件
-        self.canvas.bind("<Motion>", on_mouse_motion_wrapper)
-
-
-
-
 
     def start_behavior_monitoring(self):
         """开始行为监控 - 根据交互情况自动切换表情"""
@@ -819,76 +665,6 @@ class DesktopPet(BasePet):
         # 5秒后开始监控
         self.root.after(5000, monitor_behavior)
 
-    def create_speech_bubble(self, text):
-        """创建对话框"""
-        if self.is_hidden:
-            return
-            
-        # 清除旧的对话框
-        self.clear_speech_bubble()
-        
-        # 计算文本尺寸
-        text_width = len(text) * 10  # 估算文本宽度
-        text_height = 20
-        
-        # 对话框尺寸
-        bubble_width = min(max(text_width + 20, 80), self.pet_size - 10)+10
-        bubble_height = text_height + 20
-        
-        # 对话框位置（在宠物上方）
-        bubble_x = self.pet_size // 2
-        bubble_y = 30
-        
-        # 创建对话框背景（方形，带底色）
-        self.speech_bubble = self.canvas.create_rectangle(
-            bubble_x - bubble_width//2, bubble_y - bubble_height//2,
-            bubble_x + bubble_width//2, bubble_y + bubble_height//2,
-            fill='#FFFBEA', outline='#333333', width=2
-        )
-        
-        # 创建对话框尾巴（三角形）
-        tail_points = [
-            bubble_x - 5, bubble_y + bubble_height//2,
-            bubble_x + 5, bubble_y + bubble_height//2,
-            bubble_x, bubble_y + bubble_height//2 + 10
-        ]
-        self.speech_tail = self.canvas.create_polygon(
-            tail_points, fill='#FFFBEA', outline='#333333', width=2
-        )
-        
-        # 创建文本
-        self.speech_text = self.canvas.create_text(
-            bubble_x, bubble_y,
-            text=text,
-            font=('微软雅黑', 10),
-            fill='black',
-            width=bubble_width - 10,
-            justify='center'
-        )
-        
-        self.is_speaking = True
-        
-        # 3秒后自动清除对话框
-        self.root.after(3000, self.clear_speech_bubble)
-
-    def clear_speech_bubble(self):
-        """清除对话框"""
-        if self.speech_bubble:
-            self.canvas.delete(self.speech_bubble)
-            self.speech_bubble = None
-        if hasattr(self, 'speech_tail') and self.speech_tail:
-            self.canvas.delete(self.speech_tail)
-            self.speech_tail = None
-        if self.speech_text:
-            self.canvas.delete(self.speech_text)
-            self.speech_text = None
-        self.is_speaking = False
-
-    def say_random_message(self, category='random'):
-        """随机说话"""
-        if category in self.talk_messages:
-            message = random.choice(self.talk_messages[category])
-            self.create_speech_bubble(message)
 
     def on_click(self, event):
         """鼠标点击事件 - 开心表情并随机说话"""
@@ -970,7 +746,7 @@ class DesktopPet(BasePet):
         
         if not self.is_dragging:
             # 鼠标离开后恢复normal状态
-            self.root.after(1000, lambda: self.change_emotion('normal') if not self.mouse_over else None)
+            self.root.after(2000, lambda: self.change_emotion('normal') if not self.mouse_over else None)
 
     def show_context_menu(self, event):
         """显示右键菜单"""
@@ -1046,15 +822,6 @@ class DesktopPet(BasePet):
         if self.tray_icon:
             self.tray_icon.notify("已移动到右下角", "桌面宠物")
 
-    def toggle_pet_visibility(self):
-        """切换宠物显示/隐藏"""
-        if self.is_hidden:
-            self.show_pet()
-        else:
-            self.hide_to_tray()
-
-
-
     def show_pet(self):
         """显示宠物"""
         self.is_hidden = False
@@ -1067,33 +834,7 @@ class DesktopPet(BasePet):
         self.change_emotion('excited')
         self.create_speech_bubble("我回来啦！想我了吗？")
 
-    def _start_fish_reminder(self, fish_reminder_path):
-        """启动摸鱼提醒器"""
-        try:
-            if getattr(sys, 'frozen', False):
-                # 打包后模式 - 调用exe
-                base_path = os.path.dirname(sys.executable)
-                exe_path = os.path.join(base_path, "TouchFishReminder.exe")
-                self.fish_reminder_process = subprocess.Popen(
-                    [exe_path],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            else:
-                # 开发模式 - 调用python脚本
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                fish_reminder_path = os.path.join(current_dir, "TouchFishReminder.py")
-                if os.path.exists(fish_reminder_path):
-                   # 打开TouchFishReminder.py
-                   self.fish_reminder_process = subprocess.Popen(
-                       [sys.executable, fish_reminder_path],
-                       creationflags=subprocess.CREATE_NO_WINDOW
-                   )
-        except Exception as e:
-            print(f"启动摸鱼提醒器失败: {e}")
 
-    # def _start_fish_reminder(self):
-    #     import TouchFishReminder as TFR
-    #     TFR.run()
 
     def _handle_error(self, error_msg):
         """内部方法：处理错误"""
@@ -1103,46 +844,6 @@ class DesktopPet(BasePet):
             messagebox.showerror("错误", error_msg)
         self.change_emotion('sleepy')
         self.create_speech_bubble("咦？出了点小问题...")
-
-    def open_fish_reminder(self):
-        """打开摸鱼提醒器GUI"""
-        self.update_interaction_time()
-        
-        # 检查是否已运行
-        if self.fish_reminder_process and self.fish_reminder_process.poll() is None:
-            if self.tray_icon:
-                self.tray_icon.notify("摸鱼提醒器已经在运行中！", "桌面宠物")
-            self.change_emotion('normal')
-            self.create_speech_bubble("摸鱼提醒器已经开着呢~")
-            return
-        
-        # 获取路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        fish_reminder_path = os.path.join(current_dir, "TouchFishReminder.py")
-        if not os.path.exists(fish_reminder_path):
-            fish_reminder_path = "TouchFishReminder.exe"
-        if os.path.exists(fish_reminder_path):
-            self._start_fish_reminder(fish_reminder_path)
-        else:
-            print("摸鱼提醒器文件不存在，请检查路径！")
-        # try:
-        #     self._start_fish_reminder()
-        # except Exception as e:
-        #     self._handle_error(f"启动摸鱼提醒器失败: {e}")
-
-    def quit_app(self):
-        """退出应用"""
-        # 关闭摸鱼提醒器进程
-        if self.fish_reminder_process and self.fish_reminder_process.poll() is None:
-            self.fish_reminder_process.terminate()
-        
-        # 停止托盘图标
-        if self.tray_icon:
-            self.tray_icon.stop()
-        
-        self.root.quit()
-        self.root.destroy()
-        sys.exit()
 
     def run(self):
         """运行宠物"""

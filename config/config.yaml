@@ -1,16 +1,16 @@
-pet:
-  size: 100
-  total_height: 150
-  animation_speed: 500
-  idle_time_threshold: 300
-  thinking_time_threshold: 60
-  blink_interval_min: 80
-  blink_interval_max: 150
-  blink_duration: 8
+pet: # 宠物相关配置
+  size: 100 # 宠物的大小
+  total_height: 150 # 宠物的总高度
+  animation_speed: 500 # 动画速度
+  idle_time_threshold: 300 # 空闲时间阈值
+  thinking_time_threshold: 60 # 思考时间阈值
+  blink_interval_min: 80 # 最小眨眼间隔
+  blink_interval_max: 150 # 最大眨眼间隔
+  blink_duration: 8 # 眨眼持续时间
 
-initial_position:
-  x: "right-50"
-  y: "bottom-100"
+initial_position: # 初始位置
+  x: "right-50" # 水平方向位置
+  y: "bottom-100" # 垂直方向位置
 
-eye_tracking:
-  max_radius: 3
+eye_tracking: # 眼睛跟踪相关配置
+  max_radius: 3 # 最大跟踪半径
