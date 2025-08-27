@@ -90,6 +90,7 @@ class BasePet:
         self.root.title("桌面宠物")
         self.root.overrideredirect(True)  # 去除窗口边框和标题栏，使窗口无边框
         self.root.attributes('-topmost', True)  # 设置窗口始终置顶
+        self.root.configure(bg='white')
         self.root.attributes('-transparentcolor', 'white')  # 设置窗口白色为透明，实现宠物悬浮效果
 
         self.load_config()
@@ -143,15 +144,15 @@ class BasePet:
         """
 
         # 新增底层透明扩展图层
-        self.expand_canvas = tk.Canvas(
-            self.root,
-            width=self.pet_size * self.expand_scale,
-            height=self.total_height * self.expand_scale,
-            bg='red',  # 透明色由窗口属性控制
-            highlightthickness=0
-        )
-        # 让扩展canvas与root窗口左上角对齐
-        self.expand_canvas.place(x=0, y=0)
+        # self.expand_canvas = tk.Canvas(
+        #     self.root,
+        #     width=self.pet_size * self.expand_scale,
+        #     height=self.total_height * self.expand_scale,
+        #     bg='red',  # 透明色由窗口属性控制
+        #     highlightthickness=0
+        # )
+        # # 让扩展canvas与root窗口左上角对齐
+        # self.expand_canvas.place(x=0, y=0)
 
         # 原有宠物主canvas，放在窗口的中间偏下
         canvas_x = (self.root.winfo_width() - self.pet_size) // 2
@@ -200,7 +201,7 @@ class BasePet:
         self.canvas.bind("<Double-Button-1>", self.on_double_click)
         self.canvas.bind("<Enter>", self.on_mouse_enter)
         self.canvas.bind("<Leave>", self.on_mouse_leave)
-        self.expand_canvas.bind("<Motion>", self.on_mouse_motion)
+        self.root.bind("<Motion>", self.on_mouse_motion)
 
     def on_click(self, event):
         pass
@@ -234,7 +235,6 @@ class BasePet:
         self.mouse_y = event.y - pet_offset_y
         # 记录本次鼠标移动时间
         self.last_mouse_move_time = time.time()
-        print('last_mouse_move_time:', self.last_mouse_move_time)
 
     def create_tray_icon(self):
         """创建系统托盘图标"""
@@ -630,7 +630,6 @@ class DesktopPet(BasePet):
                 # 检查是否需要重置眼球位置
                 if time.time() - self.last_mouse_move_time > 5:# 单位秒
                     # 回到默认位置（宠物中心）
-                    print('reset mouse position',"time:",time.time())
                     self.mouse_x = self.pet_size // 2
                     self.mouse_y = self.total_height - self.pet_size // 2
 
@@ -863,7 +862,4 @@ if __name__ == "__main__":
         pet.run()
     except Exception as e:
         print(f"❌ 启动失败: {e}")
-        print("📋 可能的解决方案：")
-        print("   1. 确保已安装 Pillow: pip install Pillow")
-        print("   2. 确保已安装 pystray: pip install pystray")
         input("按回车键退出...")
